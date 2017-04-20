@@ -1,0 +1,21 @@
+[config_sql]
+#取源的哪个数据库
+dbname=warfare_config_ly_s9998
+#取哪个tables,可以为多个
+table=
+#默认过滤表为 activity_operation,activity_params,activity_notice,cross_init，具体看更新邮件，如果有修改，需要更改fab.py
+igtables=no
+
+[gamedb_sql]
+#更新要执行的sql
+querysql=
+#要更新的gamedb 不填的话，默认与java_u相同
+querydb= 
+
+[game]
+#project 可取值为jdfb,cross,en,dewen,en 表示绝地风暴，跨服,繁体,德文，英文
+project = cross
+#需要修改配置文件才填一下参数，例如 10agame.language=1
+c_config =15iurl.cross.arena=http://zzqxmanage.tmsjyx.com:82/crossArean/getCrossAreanGameServer.html
+paths =/app/warfare_cross_release/release/warfare-cross.jar,/app/warfare_cross_release/release/lib/game-core-2.0.1.jar
+java_u ="cross_s7001","cross_s7002","cross_s7003","cross_s7004","cross_s7005"
