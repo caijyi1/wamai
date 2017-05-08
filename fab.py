@@ -14,6 +14,7 @@ from fabric.api import *
 reload(sys)
 sys.setdefaultencoding('utf-8')
 
+
 CFILE = "config/config.ini"
 
 
@@ -39,9 +40,26 @@ class Config:
 	
 
 		self.project = self.cfg.get('game','project')
-		self.java_u = self.cfg.get('game','java_u').replace("\"","")
+		self.java_us = self.cfg.get('game','java_u').replace("\"","")
 		self.paths = self.cfg.get('game','paths')
 		self.c_config = self.cfg.get('game','c_config')
+        
+
+	def get_java(self):
+		javas=[]
+		x=[] 
+		for i in self.java_us.split(","): 
+			if '-' not in i: 
+				javas.append(i) 
+				continue
+			else:
+				x.append(i.split("-")) 
+		for j in x: 
+			for k in range(int(j[0].split('_s')[1]), int(j[1].split('_s')[1])+1): 
+				java="%s_s%s" %(j[0].split('_s')[0],k) 
+				javas.append(java) 
+		return javas
+		# return list(set(javas)) 去重
 
 	def getdbdump(self):
 		if self.ignore.lower() == "yes":
@@ -50,11 +68,14 @@ class Config:
 			self.dbdump = ("/usr/local/db1/bin/mysqldump -u%s -p%s -h%s %s %s >%s/gameServer/configdb_release.sql") % (self.dbuser,self.dbpasswd,self.host,self.dbname,self.tables.replace(","," "),env.lpath)
 		return self.dbdump
 	
+parser=Config(CFILE)
+if not parser.project:
+    print "project 为必填项！请检查配置文件.."
+    sys.exit(1)
 
 def initLoggerWithRotate():
-	current_time = datetime.now().strftime("%Y%m%d")
 	logpath = "/tmp"
-	logfile = "fabfile_" + current_time + ".log"
+	logfile = "fabfile_%s%s.log" %(parser.actime,parser.project)
 	if not os.path.exists(logpath):
 		os.mkdirs(logpath)
 	else:
@@ -71,20 +92,20 @@ def initLoggerWithRotate():
 	return logger
 
 logger = initLoggerWithRotate()
-parser=Config(CFILE)
+
 
 def jsonload(f):
 	with open(f,'r') as json_file:
 		data=json.load(json_file)
 		return data
 
-carduser = {'fanti':['120.28.19.229'], 'jdfb':['114.55.11.191'],'cross':['114.55.11.191'],'en':['107.150.97.160'],'dw':['35.156.104.76']}
+carduser = {'fanti':['119.28.19.229'],'jdfb':['114.55.11.191'],'jdfbts':['114.55.11.191'],'ly':['114.55.11.191'],'cross':['114.55.11.191'],'en':['107.150.97.160'],'dw':['35.156.104.76']}
 #servers_db 每台数据库分别存放了哪些游戏服的库
-servers_db = jsonload("config/%sserver_db.json" % parser.project)
+servers_db = jsonload("config/%sserver_db.js" % parser.project)
 #servers_java 每台服务器上分别存放了哪些游戏服
-servers_java = jsonload("config/%sserver_info.json" %parser.project)
+servers_java = jsonload("config/%sserver_info.js" %parser.project)
 #归总所有的项目数据库密码
-env.dbpassword = jsonload("config/sqlpasswd.json")[parser.project.strip()]
+env.dbpassword = jsonload("config/sqlpasswd.js")[parser.project.strip()]
 env.dbuser="wabao_game"
 env.lpath = "/data/update_warfare/%s_%s" %(parser.actime,parser.project)
 
@@ -96,9 +117,10 @@ env.roledefs = {
 }
 
 print cyan(env.roledefs)
-print magenta(parser.java_u)
+java_u = parser.get_java()
+print magenta(java_u)
 print magenta(parser.paths)
-
+print red(parser.querysqls.replace(';',';\r\n'))
 if parser.project in ['en','dw']:
 	env.port = 36000
 else:
@@ -115,15 +137,15 @@ def pull_file():
 		local("mkdir -p %s/gameServer" % env.lpath)
 		if parser.querysqls:
 			with open(env.lpath + "/gameServer/gamedb_release.sql","w+") as f:
-				f.write(parser.querysqls)
-		local(parser.getdbdump())
+				f.write(parser.querysqls.replace(';',';\r\n'))
+		if parser.dbname:
+			local(parser.getdbdump())
 		logger.info("sql 获取完毕！")
 		if parser.paths:
 			for path in parser.paths.split(','):
-				print red(path.strip())
 				result = get(path.strip(), "%s/gameServer" % env.lpath)
-			if result.failed and not("get file failed,Continue[Y/N]?"):
-				abort("Aborting file get task!")
+				if result.failed and not("get file failed,Continue[Y/N]?"):
+					abort("Aborting file get task!")
 
 
 def rsync_file(host):
@@ -138,8 +160,18 @@ def rsync_file(host):
 @task
 @roles('%sgame' %parser.project)
 @parallel(pool_size=5)		
-def push_file():
+def push_file_game():
 	execute(rsync_file,env.host)
+
+@task
+@roles('jumpser')
+def push_sql_jump():
+	execute(rsync_file,env.host)
+
+@task
+def push_all():
+	execute(push_file_game)
+	execute(push_sql_jump)
 
 
 @task
@@ -148,7 +180,7 @@ def push_file():
 def game_stop():
 	with settings(hide('warnings','stderr','stdout'),warn_only=True):
 		try:
-			for java in parser.java_u.split(','):
+			for java in java_u:
 				if java.strip() in servers_java[env.host]:
 					print green("set -m;sh /data/sh/switch/op/shutdown_game.sh %s >/dev/null &" % (java.strip()))
 					result = run("set -m;sh /data/sh/switch/op/shutdown_game.sh %s >/dev/null &" % (java.strip()))
@@ -165,11 +197,11 @@ def game_stop():
 def game_check():
 	with settings(hide('warnings','stdout','stderr',),warn_only=True):
 		try:
-			for java in parser.java_u.split(','):
+			for java in java_u:
 				if java.strip() in servers_java[env.host]:
 					result=run("ps aux |grep -v grep|grep %s" %java.strip())
 					if result.count(java.strip()) == 2:
-						print blue("%s 游戏进程存活!" % java)
+						print green("%s 游戏进程存活!" % java)
 					else:
 						print magenta("%s 游戏进程被杀死!" %java)
 		except Exception as e:
@@ -181,28 +213,26 @@ def game_check():
 def update_server():
 	with settings(hide('warnings','stdout','stderr',),warn_only=True):
 		try:
-			for java in parser.java_u.split(','):
+			for java in java_u:
 				if java.strip() in servers_java[env.host]:
 					if "cross"  in java:
 						if parser.c_config:
-							print cyan("配置文件将进行修改...")
 							run("sed -i '%s' /app/warfare_cross/%s/config/game.properties" %(parser.c_config,java.strip()))
 							logger.info("%s配置文件修改成功" % java)
-						#此处如果更新文件里有lib/xxx.jar 可能也会直接放到
-						print cyan("%s服正在更新..." % java.strip())
+						
 						result1 = run("cp -rf %s/gameServer/warfare-cross.jar /app/warfare_cross/%s/" % (env.lpath,java.strip()))
 						result2 = run("rsync -avcz --update  %s/gameServer/*.jar --exclude=warfare-cross.jar /app/warfare_cross/%s/lib/" % (env.lpath,java.strip()))
 					else:
 						if parser.c_config:
 							run("sed -i '%s' /app/warfare/%s/gameServer/config/game.properties" %(parser.c_config,java.strip()))
 							logger.info("%s配置文件修改成功" % java)
-						print green("%s 服正在更新" % java)
-						result1 = run("rsync -avcz --update -n %s/gameServer/warfare-game.jar /app/warfare/%s/gameServer/" %(env.lpath,java.strip()))
-						result2 = run("rsync -avcz --update -n %s/gameServer/*.jar --exclude=warfare-game.jar /app/warfare/%s/gameServer/lib/" %(env.lpath,java.strip()))
+						result1 = run("rsync -avcz --update %s/gameServer/warfare-game.jar /app/warfare/%s/gameServer/" %(env.lpath,java.strip()))
+						result2 = run("rsync -avcz --update %s/gameServer/*.jar --exclude=warfare-game.jar /app/warfare/%s/gameServer/lib/" %(env.lpath,java.strip()))
 					if result1.succeeded and result2.succeeded:
-						logger.info("更新%s文件到 %s Success!" % (java,env.host))
+						logger.info("更新%s文件到 %s 成功!" % (java,env.host))
 					else:
-						logger.error("更新%s文件到 %s Failed!" %(java,env.host))
+						print red("更新%s文件到 %s 失败!" %(java,env.host))
+						logger.error("更新%s文件到 %s 失败!" %(java,env.host))
 		except Exception as e:
 			logger.error(str(e))
 							
@@ -214,9 +244,9 @@ def update_server():
 @roles('jumpser')
 @parallel(pool_size=5)
 def update_db():
-	with settings(hide('stderr','warnings','stdout'),warn_only=True):
+	with settings(hide('stderr','warnings','stdout',),warn_only=True):
 		try:
-			for java in parser.java_u.split(','):
+			for java in java_u:
 				configdbf = '%s/gameServer/configdb_release.sql' % env.lpath
 				for host in servers_db:
 					if java.strip() in servers_db[host]:	
@@ -226,19 +256,22 @@ def update_db():
 						else:
 							configdb = "configdb_" + java.strip()
 							gamedb = "gamedb_" + java.strip()
-						result = run("/usr/local/db1/bin/mysql -h%s -uwabao_game -p%s %s -f < %s " %(host, env.dbpassword, configdb, env.sqlf))
-						if result.succeeded:
-							logger.info("Update %s  %s Successs!" %(host, configdb))
-						else:
-							logger.error("Update %s %s Failed!" %(host, configdb))
+						if parser.dbname:
+							result = run("/usr/local/db1/bin/mysql -h%s -uwabao_game -p%s %s -f < %s " %(host, env.dbpassword, configdb, env.sqlf))
+							if result.succeeded:
+								logger.info("Update %s  %s 成功!" %(host, configdb))
+							else:
+								print red("Update %s %s 失败!" %(host, configdb))
+								logger.error("Update %s %s 失败!" %(host, configdb))
 						if parser.querysqls:
 							gamedbf = "%s/gameServer/gamedb_release.sql" % env.lpath
 							print magenta("/usr/local/db1/bin/mysql -h%s -uwabao_game -p%s %s -f < %s" %(host, env.dbpassword, gamedb,gamedbf))
 							result = run("/usr/local/db1/bin/mysql -h%s -uwabao_game -p%s %s -f < %s" %(host, env.dbpassword,gamedb,gamedbf))
 							if result.succeeded:
-								logger.info("Update %s %s Successs!" %(host, gamedb))
+								logger.info("Update %s %s 成功!" %(host, gamedb))
 							else:
-								logger.error("Update %s %s Failed!" %(host, gamedb))
+								print red("Update %s %s 失败!" %(host, gamedb))
+								logger.error("Update %s %s 失败!" %(host, gamedb))
 				continue	
 		except Exception as e:
 			print red(str(e))
@@ -250,7 +283,7 @@ def update_db():
 def game_startup():
 	with settings(hide('warnings','stdout','stderr',),warn_only=True):
 		try:
-			for java in parser.java_u.split(','):
+			for java in java_u:
 				if java.strip() in servers_java[env.host]:
 					result = run("set -m;sh /data/sh/switch/op/start_game.sh %s >/dev/null &" % java.strip())
 					if result.succeeded:
