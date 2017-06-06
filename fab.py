@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 #-*- coding:utf8 -*-
 
-from datetime import datetime
-import MySQLdb
-import json
 from fabric.colors import *
 import os,logging,sys,json
 import logging.handlers
@@ -99,9 +96,7 @@ def jsonload(f):
 		data=json.load(json_file)
 		return data
 
-carduser = {'fanti':['119.28.19.229'],'jdfb':['114.55.11.191'],'jdfbts':['114.55.11.191'],'ly':['114.55.11.191'],'cross':['114.55.11.191'],'en':['107.150.97.160'],'dw':['35.156.104.76']}
 #servers_db 每台数据库分别存放了哪些游戏服的库
-servers_db = jsonload("config/%sserver_db.js" % parser.project)
 #servers_java 每台服务器上分别存放了哪些游戏服
 servers_java = jsonload("config/%sserver_info.js" %parser.project)
 #归总所有的项目数据库密码
@@ -111,8 +106,6 @@ env.lpath = "/data/update_warfare/%s_%s" %(parser.actime,parser.project)
 
 env.roledefs = {
 	'sourceserver': ['root@125.88.171.116:9821'],
-	'jumpser': list(carduser[parser.project]),
-	#例如: 'fantigame': ['119.28.61.214'],
 	parser.project + "game" : servers_java.keys(),
 }
 
@@ -160,18 +153,8 @@ def rsync_file(host):
 @task
 @roles('%sgame' %parser.project)
 @parallel(pool_size=5)		
-def push_file_game():
+def push_file():
 	execute(rsync_file,env.host)
-
-@task
-@roles('jumpser')
-def push_sql_jump():
-	execute(rsync_file,env.host)
-
-@task
-def push_all():
-	execute(push_file_game)
-	execute(push_sql_jump)
 
 
 @task
@@ -182,12 +165,11 @@ def game_stop():
 		try:
 			for java in java_u:
 				if java.strip() in servers_java[env.host]:
-					print green("set -m;sh /data/sh/switch/op/shutdown_game.sh %s >/dev/null &" % (java.strip()))
 					result = run("set -m;sh /data/sh/switch/op/shutdown_game.sh %s >/dev/null &" % (java.strip()))
 					if result.succeeded:
-						logger.info("发送停止命令%s 上的%s游戏进程服 Success!" % (env.host,java))
+						logger.info("发送停止命令%s 上的%s游戏进程服 成功!" % (env.host,java))
 					else:
-						logger.error("发送停止命令%s 上的%s游戏进程服 Failed!" %(env.host,java))
+						logger.error("发送停止命令%s 上的%s游戏进程服 失败!" %(env.host,java))
 		except Exception as e:
 			logger.error(str(e))
 
@@ -235,47 +217,55 @@ def update_server():
 						logger.error("更新%s文件到 %s 失败!" %(java,env.host))
 		except Exception as e:
 			logger.error(str(e))
-							
-		
-
-
 
 @task
-@roles('jumpser')
+@roles('%sgame' % parser.project)
 @parallel(pool_size=5)
 def update_db():
-	with settings(hide('stderr','warnings','stdout',),warn_only=True):
+	with settings(hide('warnings','stdout','stderr',),warn_only=True):
 		try:
 			for java in java_u:
-				configdbf = '%s/gameServer/configdb_release.sql' % env.lpath
-				for host in servers_db:
-					if java.strip() in servers_db[host]:	
-						if parser.project == "cross":
-							configdb = "warfare_cross_config_" + java.split('_')[1].strip()
-							gamedb = "warfare_cross_" + java.split('_')[1].strip()
-						else:
-							configdb = "configdb_" + java.strip()
-							gamedb = "gamedb_" + java.strip()
+				if java.strip() in servers_java[env.host]:
+					if parser.project == "cross":
+						configdb = "warfare_cross_config_" + java.split('_')[1].strip()
+						gamedb = "warfare_" + java.strip()
 						if parser.dbname:
-							result = run("/usr/local/db1/bin/mysql -h%s -uwabao_game -p%s %s -f < %s " %(host, env.dbpassword, configdb, env.sqlf))
+							result = run("/usr/local/db1/bin/mysql -h`awk -F[/:]+ '/config.url/{print $3}' /app/warfare_cross/%s/config/game.properties` -uwabao_game -p%s %s < %s" %(java.strip(),env.dbpassword,configdb,env.sqlf))
 							if result.succeeded:
-								logger.info("Update %s  %s 成功!" %(host, configdb))
+								logger.info("Update %s  %s 成功!" %(env.host, configdb))
 							else:
-								print red("Update %s %s 失败!" %(host, configdb))
-								logger.error("Update %s %s 失败!" %(host, configdb))
+								print red("Update %s %s 失败!" %(env.host, configdb))
+								logger.error("Update %s %s 失败!" %(env.host, configdb))
 						if parser.querysqls:
 							gamedbf = "%s/gameServer/gamedb_release.sql" % env.lpath
-							print magenta("/usr/local/db1/bin/mysql -h%s -uwabao_game -p%s %s -f < %s" %(host, env.dbpassword, gamedb,gamedbf))
-							result = run("/usr/local/db1/bin/mysql -h%s -uwabao_game -p%s %s -f < %s" %(host, env.dbpassword,gamedb,gamedbf))
+							result = run("/usr/local/db1/bin/mysql -h`awk -F[/:]+ '/gamedb.url/{print $3}' /app/warfare_cross/%s/config/game.properties` -uwabao_game -p%s %s -f < %s" %(java.strip(), env.dbpassword,gamedb,gamedbf))
 							if result.succeeded:
-								logger.info("Update %s %s 成功!" %(host, gamedb))
+								logger.info("Update %s %s 成功!" %(env.host, gamedb))
 							else:
-								print red("Update %s %s 失败!" %(host, gamedb))
-								logger.error("Update %s %s 失败!" %(host, gamedb))
-				continue	
+								print red("Update %s %s 失败!" %(env.host, gamedb))
+								logger.error("Update %s %s 失败!" %(env.host, gamedb))
+					else:
+						configdb = "configdb_" + java.strip()
+						gamedb = "gamedb_" + java.strip()
+						if parser.dbname:
+							result = run("/usr/local/db1/bin/mysql -h`awk -F[/:]+ '/config.url/{print $3}' /app/warfare/%s/gameServer/config/game.properties` -uwabao_game -p%s %s < %s" %(java.strip(),env.dbpassword,configdb,env.sqlf))
+							if result.succeeded:
+								logger.info("Update %s  %s 成功!" %(env.host, configdb))
+							else:
+								print red("Update %s %s 失败!" %(env.host, configdb))
+								logger.error("Update %s %s 失败!" %(env.host, configdb))
+						if parser.querysqls:
+							gamedbf = "%s/gameServer/gamedb_release.sql" % env.lpath
+							result = run("/usr/local/db1/bin/mysql -h`awk -F[/:]+ '/gamedb.url/{print $3}' /app/warfare/%s/gameServer/config/game.properties` -uwabao_game -p%s %s -f < %s" %(java.strip(), env.dbpassword,gamedb,gamedbf))
+							if result.succeeded:
+								logger.info("Update %s %s 成功!" %(env.host, gamedb))
+							else:
+								print red("Update %s %s 失败!" %(env.host, gamedb))
+								logger.error("Update %s %s 失败!" %(env.host, gamedb))
+
 		except Exception as e:
-			print red(str(e))
-			logger.error(str(e))
+			logger.error(str(e))				
+
 
 @task
 @roles('%sgame' %parser.project)
@@ -285,7 +275,7 @@ def game_startup():
 		try:
 			for java in java_u:
 				if java.strip() in servers_java[env.host]:
-					result = run("set -m;sh /data/sh/switch/op/start_game.sh %s >/dev/null &" % java.strip())
+					result = run("set -m;sh /data/sh/switch/op/start_game.sh %s >/dev/null &" % java)
 					if result.succeeded:
 						logger.info("%s 上的%s游戏进程服开服命令发送 Success!" % (env.host,java))
 					else:
