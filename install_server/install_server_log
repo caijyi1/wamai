@@ -1,0 +1,37 @@
+[36mserverip:114.55.117.37
+server_flag:lianyun_s6007
+Dbip:rm-bp1k3kdg1hjrnxv1w.mysql.rds.aliyuncs.com
+source_cdbip:rm-bp1k3kdg1hjrnxv1w.mysql.rds.aliyuncs.com
+source_gdbip:rm-bp1k3kdg1hjrnxv1w.mysql.rds.aliyuncs.com
+source_logdbip:10.26.249.17[0m
+[36mlogdbip:10.26.249.17
+port:22
+carduser:114.55.11.191
+fserver_flag:lianyun_s5001
+fserver:114.55.117.37[0m
+[36mGAMEID:6007
+GAMEPORT:6051
+WEBPORT:6052
+MPORT:6050
+DOMAIN_NAME:gserverly1.tmsjyx.com[0m
+[32m [2017-06-21 19:35:25] configdb_lianyun_s6007_创建_成功 [0m
+[32m [2017-06-21 19:35:26] gamedb_lianyun_s6007_创建_成功 [0m
+[32m [2017-06-21 19:36:26] configdb_lianyun_s6007_授权—wabao_game_成功 [0m
+[32m [2017-06-21 19:36:27] configdb_lianyun_s6007_授权—wabao_config_成功 [0m
+[32m [2017-06-21 19:36:27] configdb_lianyun_s6007_授权—dev_check_成功 [0m
+[32m [2017-06-21 19:36:28] gamedb_lianyun_s6007_授权—wabao_game_成功 [0m
+[32m [2017-06-21 19:36:28] gamedb_lianyun_s6007_授权—wabao_成功 [0m
+[32m [2017-06-21 19:36:28] gamedb_lianyun_s6007_授权—dev_check_成功 [0m
+[32m [2017-06-21 19:36:29] 日志数据库10.26.249.17_连接_成功 [0m
+[32m [2017-06-21 19:36:29] gamelog_lianyun_s6007_创建_成功 [0m
+[32m [2017-06-21 19:36:29] gamelog_lianyun_s6007_授权—wabao_game_成功 [0m
+[32m [2017-06-21 19:36:30] gamelog_lianyun_s6007_授权—wabao_成功 [0m
+[32m [2017-06-21 19:36:30] gamelog_lianyun_s6007_授权—dev_check_成功 [0m
+[32m [2017-06-21 19:36:38] 从114.55.117.37拉取文件到本地__成功 [0m
+[32m [2017-06-21 19:36:41] 游戏服lianyun_s6007推送到114.55.117.37__成功 [0m
+[32m [2017-06-21 19:36:43] 配置文件修改__成功 [0m
+[32m [2017-06-21 19:36:44] 防火墙修改__成功 [0m
+[1;32m [2017-06-21 19:36:44] 正在测试连接configdb数据库... [0m
+[1;32m [2017-06-21 19:36:59] 正在导入configdb数据... [0m
+[1;32m [2017-06-21 19:37:05] 游戏安装已完成，本次安装花时:"104"秒 [0m
+[1;32m [2017-06-21 19:37:05] 请执行开启游戏：ssh -p 22 114.55.117.37 sh /data/sh/switch/start_game.sh lianyun_s6007 [0m
