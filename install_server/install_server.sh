@@ -3,65 +3,66 @@
 set -e
 source /data/save/make_logs
 
-: ${3?"Usage $0 平台ID 平台名 游戏服,Example $0 15 wabao s1"}
-
 _MYSQLBIN="/usr/local/db1/bin/mysql -sBNc -h127.0.0.1 -uroot -p`cat /data/save/mysql_root` wabao_center"
-
-function T_or_F() {
-    [[ $? -eq 0 ]] && save_logs  -green ${1}_成功 |tee -a install_server_log || save_logs -red ${1}_失败 |tee -a install_server_log
-}
-
 function get_help(){
 	${_MYSQLBIN} -e "select  a.sPlatName,a.iProjectId,b.sProjectName \
 	from cloud_plat_server a join project b on b.iProjectId = a.iProjectId
 	group by a.sPlatName,a.iProjectId;"
 }
 
+: ${3?"Usage $0 平台ID 平台名 游戏服,Example $0 15 wabao s1 "}
+
+
+function T_or_F() {
+    [[ $? -eq 0 ]] && save_logs  -green ${1}_成功 |tee -a install_server_log || save_logs -red ${1}_失败 |tee -a install_server_log
+}
+
+
 function base_config {
-    mkdir -p /data/backup/{database,Server}/
+    ssh -p $port $serverip "mkdir -p /data/backup/{database,Server}/"
     #拉取中心监控脚本目录
-    mkdir -p /data/sh/
-    scp -P $port $fserver:/data/sh/*  /data/sh/
-    scp -P $port $fserver:/etc/crontab /etc/
-    [ -d '/data/sh/switch/status/' ] && { /bin/rm -rf /data/sh/switch/status/* ; }
+    ssh -p $port $serverip mkdir -p /data/sh/
+    scp -P $port $fserver:/data/sh/*  /data/tmp/$fserver/sh/
+    scp -P $port $fserver:/etc/crontab /data/tmp/$fserver/etc
+    rsync -acz /data/tmp/$fserver/sh $serverip:/data/
+    rsync -acz /data/tmp/$fserver/etc/crontab $serverip:/etc/
+    ssh -p $port $serverip "/bin/rm -rf /data/sh/switch/status/*"
 }
 
 function initalize() {
     Project=$2
+    server_id=`echo $3|awk -F's' '{print $2}'`
+    fserver_id=s$((${server_id}-1))
     server=$3
     server_flag=$2_$3
-    if [[ $Project == "wabao" ]];then
-        fserver=114.55.172.25
-        fserver_flag=wabao_s5
+
+    fserver=$(${_MYSQLBIN} -e "select sIPCtcc from cloud_plat_server where iProjectId=$1 and sPlatName='$Project' and sPlatServer='${fserver_id}'")
+    fserver_flag=${Project}_${fserver_id}
+
+    if [[ $Project == "wabao" ]] || [[ $Project == "lianyun" ]];then
         carduser=114.55.11.191
         port=22
-        logdbip=10.26.249.17
-    elif  [[ $Project == "lianyun" ]]; then
-        fserver=114.55.174.126
-        fserver_flag=lianyun_s6001
-        carduser=114.55.11.191
-        port=22
-        logdbip=10.26.249.17
+        #logdbip=10.26.249.17
+        #logdbip=10.28.44.136
+        logdbip=10.25.175.169
     elif [[ $Project == "fanti" ]]; then
-        fserver=119.28.61.214
-        fserver_flag=fanti_s1
         carduser=119.28.19.229
+	fserver_flag=fanti_s4
         port=22
         logdbip=10.144.80.164
     elif [[ $Project == "en" ]]; then
-        fserver=107.150.97.198
-        fserver_flag=en_s1
         carduser=107.150.97.160
         port=36000
         logdbip=10.11.39.241
+    elif [[ $Project == "3ken" ]]; then
+        carduser=49.51.33.133
+        port=22
+        logdbip=127.0.0.1
     else [[ $Project == "dewen" ]];
-        fserver=35.156.203.239
-        fserver_flag=dewen_s1
         carduser=35.156.104.76
         port=36000
         logdbip=10.20.33.132
     fi
-
 
     serverip=$(${_MYSQLBIN} -e "select sIPCtcc from cloud_plat_server where iProjectId=$1 and sPlatName='$Project' group by sIPCtcc order by count(sIPCtcc) limit 1;")
     if [[ $Project == "wabao" ]]; then
@@ -105,7 +106,7 @@ function check_server() {
 }
 
 function check_domain() {
-    if [[ $Project == "wabao" ]] || [[ $Project == "lianyun" ]]; then
+    if [[ $Project == "wabao" ]] || [[ $Project == "lianyun" ]] || [[ $Project == "fanti" ]] || [[ $Project == "3ken" ]]; then
         DOMAIN_NAME=$(cat /etc/hosts|grep ${serverip} |awk '{print $2}')
         if [[ -z "${DOMAIN_NAME}" ]]; then
             save_logs -red "${DOMAIN_NAME}" 不存在 && exit 1
@@ -121,7 +122,7 @@ function rds() {
     aliyuncli rds CreateDatabase --DBInstanceId $aliDB --DBName gamedb_${server_flag} --CharacterSetName utf8mb4
     T_or_F "gamedb_${server_flag}_创建"
 
-    sleep 60
+    sleep 80
     aliyuncli rds GrantAccountPrivilege --DBName configdb_${server_flag} --DBInstanceId $aliDB --AccountName wabao_game --AccountPrivilege ReadWrite
     T_or_F "configdb_${server_flag}_授权—wabao_game"
     aliyuncli rds GrantAccountPrivilege --DBName configdb_${server_flag} --DBInstanceId $aliDB --AccountName wabao_config --AccountPrivilege ReadWrite
@@ -171,25 +172,25 @@ function local_mysql() {
 
 function logdb() {
     #创建数据库
-    ssh -p $port $serverip "/usr/local/db1/bin/mysqladmin -uroot -p`cat /data/save/$Project/mysql_root` -h${logdbip} ping"|grep -qw 'alive'
+    ssh -p $port $serverip "/usr/local/db1/bin/mysqladmin -uroot -p`cat /data/save/$Project/mysql_root_log` -h${logdbip} ping"|grep -qw 'alive'
     T_or_F "日志数据库${logdbip}_连接"
-    ssh -p $port $serverip "/usr/local/db1/bin/mysql -uroot -p`cat /data/save/$Project/mysql_root` -h${logdbip} \
+    ssh -p $port $serverip "/usr/local/db1/bin/mysql -uroot -p`cat /data/save/$Project/mysql_root_log` -h${logdbip} \
         -e 'create database gamelog_${server_flag} default character set utf8mb4;'"
     T_or_F "gamelog_${server_flag}_创建"
     #授权数据库
-    ssh -p $port $serverip "/usr/local/db1/bin/mysql -uroot -p`cat /data/save/$Project/mysql_root` -h${logdbip} \
+    ssh -p $port $serverip "/usr/local/db1/bin/mysql -uroot -p`cat /data/save/$Project/mysql_root_log` -h${logdbip} \
         -e 'grant all privileges on gamelog_${server_flag}.* to wabao_game@\"%\";'"
     T_or_F "gamelog_${server_flag}_授权—wabao_game"
-    ssh -p $port $serverip "/usr/local/db1/bin/mysql -uroot -p`cat /data/save/$Project/mysql_root` -h${logdbip} \
+    ssh -p $port $serverip "/usr/local/db1/bin/mysql -uroot -p`cat /data/save/$Project/mysql_root_log` -h${logdbip} \
         -e 'grant select on gamelog_${server_flag}.* to wabao@\"%\"; flush privileges'"
     T_or_F "gamelog_${server_flag}_授权—wabao"
-    ssh -p $port $serverip "/usr/local/db1/bin/mysql -uroot -p`cat /data/save/$Project/mysql_root` -h${logdbip} \
+    ssh -p $port $serverip "/usr/local/db1/bin/mysql -uroot -p`cat /data/save/$Project/mysql_root_log` -h${logdbip} \
         -e 'grant select on gamelog_${server_flag}.* to dev_check@\"%\"; flush privileges'"
     T_or_F "gamelog_${server_flag}_授权—dev_check"
 }
 
 function rsync_gs() {
-    #[[ GAMEPORT -eq 6001 ]] && save_logs -red "第一次装服,请做好预备工作" |tee -a install_server_log
+    [[ GAMEPORT -eq 6001 ]] && save_logs -red "第一次装服,请做好预备工作" |tee -a install_server_log && base_config
     ssh -p $port $serverip "touch /data/sh/switch/status/${server_flag}.txt"
     ssh -p $port $serverip ">/data/sh/switch/status/${server_flag}.txt"
     rsync -aqcz  --delete -e "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=60 -p ${port}" \
@@ -219,6 +220,7 @@ function properties_config() {
 }
 
 function dbconn() {
+    set +e
     save_logs -yellow "正在测试连接configdb数据库..." |tee -a install_server_log
     result=0
     while [[ "x$result" != "x1" ]]
@@ -228,6 +230,7 @@ function dbconn() {
         #result=$(ssh 114.55.237.41 "/usr/local/db1/bin/mysql -BNc -uwabao_game -p`cat /data/save/$Project/mysql_wabao_game` -hrm-bp190565h9s2om3i0.mysql.rds.aliyuncs.com configdb_wabao_s113 -e 'select 1'")
         T_or_F "${Dbip} wabao_game configdb_${fserver_flag}连接_"
     done
+    set -e
 }
 
 function import_configdb() {
@@ -236,6 +239,8 @@ function import_configdb() {
     --default-character-set=utf8 --set-gtid-purged=OFF --single-transaction configdb_${fserver_flag} | \
     /usr/local/db1/bin/mysql -BNc -uwabao_game -p`cat /data/save/$Project/mysql_wabao_game` -h${Dbip} configdb_${server_flag}"
     T_or_F "${Dbip} wabao_game ${fserver_flag}导入_"
+    ssh -p $port $serverip "/usr/local/db1/bin/mysql -BNc -uwabao_game -p`cat /data/save/$Project/mysql_wabao_game` -h${Dbip} configdb_${server_flag} -e \"update cross_init set value='false' where value='true';\""
+    T_or_F "${Dbip} configdb_${fserver_flag} cross_init 初始化_"
 }
 
 function add_opcenter {
@@ -280,5 +285,5 @@ function main() {
 save_logs -yellow "游戏安装已完成，本次安装花时:\"$SECONDS\"秒" | tee -a install_server_log
 save_logs -yellow "请执行开启游戏：ssh -p $port $serverip sh /data/sh/switch/start_game.sh ${server_flag}" |tee -a install_server_log
 }
-
 main $1 $2 $3
+
